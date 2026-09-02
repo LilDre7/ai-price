@@ -1,8 +1,8 @@
 """
-GD Computadoras - Filtro de precisión con IA (Claude)
+GD Computadoras - Filtro de precisión con IA
 
 Este módulo recibe una lista "cruda" de productos (ya filtrados solo por
-marca, sin filtro estricto de texto) y usa Claude para decidir cuáles
+marca, sin filtro estricto de texto) y usa un LLM para decidir cuáles
 realmente corresponden al modelo que el usuario buscó.
 
 Por qué hace falta:
@@ -12,10 +12,15 @@ el nombre en la tienda viene escrito distinto, ej:
   - "Acer Aspire 5 Slim A514"           -> es un modelo DIFERENTE
 Un humano lo distingue al toque; un match de texto simple no.
 
-Requiere la variable de entorno ANTHROPIC_API_KEY.
-Conseguí una key en: https://console.anthropic.com/settings/keys
+PROVEEDORES SOPORTADOS (se eligen con variables de entorno):
+  1. OpenAI-compatible (TokenRouter, Groq, OpenRouter, etc.):
+        AI_API_KEY=...
+        AI_BASE_URL=https://api.tokenrouter.com/v1
+        AI_MODEL=google/gemini-3.5-flash-lite   (opcional)
+  2. Anthropic (Claude):
+        ANTHROPIC_API_KEY=...
 
-Si la variable no está configurada, este módulo se desactiva solo y el
+Si ninguna key está configurada, este módulo se desactiva solo y el
 sistema sigue funcionando con el filtro de texto normal (sin romper nada).
 """
 
@@ -28,13 +33,71 @@ from dotenv import load_dotenv
 
 load_dotenv()  # lee el archivo .env y carga sus variables al entorno
 
+# Proveedor OpenAI-compatible (TokenRouter, Groq, OpenRouter, ...)
+AI_API_KEY = os.environ.get("AI_API_KEY")
+AI_BASE_URL = (os.environ.get("AI_BASE_URL") or "").rstrip("/")
+# Un modelo "openai" en TokenRouter. Cualquier proveedor OpenAI-compatible
+# con su propio AI_MODEL funciona acá.
+AI_MODEL = os.environ.get("AI_MODEL") or "openai/gpt-5.4-nano"
+
+# Proveedor Anthropic (manteniendo el funcionamiento anterior)
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY")
 ANTHROPIC_MODEL = "claude-haiku-4-5-20251001"
-ANTHROPIC_URL = "https://api.anthropic.com/v1/messages"
 
 
 def ia_disponible() -> bool:
-    return bool(ANTHROPIC_API_KEY)
+    """Hay una key configurada para alguno de los proveedores soportados."""
+    return bool((AI_API_KEY and AI_BASE_URL) or ANTHROPIC_API_KEY)
+
+
+def _llamar_ia(prompt: str, max_tokens: int, timeout: int) -> str:
+    """
+    Llama al proveedor configurado y devuelve el texto de la respuesta.
+    Lanza una excepción si no hay proveedor o si la petición falla;
+    el llamador decide qué hacer entonces.
+    """
+    if AI_API_KEY and AI_BASE_URL:
+        resp = requests.post(
+            f"{AI_BASE_URL}/chat/completions",
+            headers={
+                "Authorization": f"Bearer {AI_API_KEY}",
+                "Content-Type": "application/json",
+            },
+            json={
+                "model": AI_MODEL,
+                "max_tokens": max_tokens,
+                "messages": [{"role": "user", "content": prompt}],
+            },
+            timeout=timeout,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        return data["choices"][0]["message"]["content"]
+
+    if ANTHROPIC_API_KEY:
+        resp = requests.post(
+            "https://api.anthropic.com/v1/messages",
+            headers={
+                "x-api-key": ANTHROPIC_API_KEY,
+                "anthropic-version": "2023-06-01",
+                "content-type": "application/json",
+            },
+            json={
+                "model": ANTHROPIC_MODEL,
+                "max_tokens": max_tokens,
+                "messages": [{"role": "user", "content": prompt}],
+            },
+            timeout=timeout,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        return "".join(
+            block.get("text", "")
+            for block in data.get("content", [])
+            if block.get("type") == "text"
+        )
+
+    raise RuntimeError("No hay IA configurada")
 
 
 def extraer_busqueda(query: str) -> dict:
@@ -63,27 +126,7 @@ Responde ÚNICAMENTE con un JSON válido, sin texto adicional, formato exacto:
 Si no podés identificar una marca clara, usa {{"marca": null, "termino": "{query}"}}"""
 
     try:
-        resp = requests.post(
-            ANTHROPIC_URL,
-            headers={
-                "x-api-key": ANTHROPIC_API_KEY,
-                "anthropic-version": "2023-06-01",
-                "content-type": "application/json",
-            },
-            json={
-                "model": ANTHROPIC_MODEL,
-                "max_tokens": 200,
-                "messages": [{"role": "user", "content": prompt}],
-            },
-            timeout=15,
-        )
-        resp.raise_for_status()
-        data = resp.json()
-        texto = "".join(
-            block.get("text", "")
-            for block in data.get("content", [])
-            if block.get("type") == "text"
-        ).strip()
+        texto = _llamar_ia(prompt, max_tokens=200, timeout=15)
         texto = texto.replace("```json", "").replace("```", "").strip()
         resultado = json.loads(texto)
         return {
@@ -103,7 +146,7 @@ def filtrar_coincidencias_reales(
     """
     Recibe la búsqueda libre del usuario (ej. "acer aspire 5", "iphone 17",
     "parlante jbl grip") y la lista de nombres de producto tal como aparecen
-    en la tienda. Devuelve SOLO los que Claude confirma que son el producto
+    en la tienda. Devuelve SOLO los que el modelo confirma que son el producto
     exacto buscado — descartando combos, kits, accesorios sueltos o
     variantes que no correspondan, salvo que la búsqueda los pida explícitamente.
 
@@ -153,30 +196,7 @@ Reglas estrictas:
   justamente comparar el precio de esas tiendas entre sí."""
 
     try:
-        resp = requests.post(
-            ANTHROPIC_URL,
-            headers={
-                "x-api-key": ANTHROPIC_API_KEY,
-                "anthropic-version": "2023-06-01",
-                "content-type": "application/json",
-            },
-            json={
-                "model": ANTHROPIC_MODEL,
-                # Con 8 tiendas pueden llegar ~90 candidatos; la lista de
-                # índices que devuelve necesita espacio para no truncarse.
-                "max_tokens": 1024,
-                "messages": [{"role": "user", "content": prompt}],
-            },
-            timeout=25,
-        )
-        resp.raise_for_status()
-        data = resp.json()
-
-        texto = "".join(
-            block.get("text", "")
-            for block in data.get("content", [])
-            if block.get("type") == "text"
-        ).strip()
+        texto = _llamar_ia(prompt, max_tokens=1024, timeout=25)
         texto = texto.replace("```json", "").replace("```", "").strip()
 
         resultado = json.loads(texto)
