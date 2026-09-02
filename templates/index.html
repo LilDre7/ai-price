@@ -4,6 +4,7 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>BuscaPorMí — Tu IA personal para encontrar el mejor precio</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='16' fill='%230B0E11'/%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%2334D399'/%3E%3Cstop offset='1' stop-color='%2310B981'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect x='12' y='12' width='40' height='40' rx='10' fill='url(%23g)'/%3E%3Ctext x='32' y='42' font-family='Arial, sans-serif' font-size='26' font-weight='700' text-anchor='middle' fill='%2306281C'%3EB%3C/text%3E%3C/svg%3E" />
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
@@ -39,9 +40,9 @@
   }
 
   .wrap {
-    max-width: 880px;
+    max-width: 1180px;
     margin: 0 auto;
-    padding: 40px 22px 80px;
+    padding: 40px clamp(18px, 3.5vw, 44px) 90px;
   }
 
   header {
@@ -106,7 +107,6 @@
   }
 
   .search {
-    position: relative;
     display: grid;
     grid-template-columns: 1fr auto;
     gap: 8px;
@@ -123,24 +123,25 @@
     box-shadow: 0 0 0 3px var(--accent-glow), var(--shadow);
   }
 
-  @media (max-width: 560px) {
-    .search { grid-template-columns: 1fr; padding: 10px; }
+  .search .campo {
+    position: relative;
+    display: flex;
+    align-items: center;
+    min-width: 0;
   }
-
-  .search .icon {
+  .search .campo .icon {
     position: absolute;
-    left: 18px;
-    top: 50%;
-    transform: translateY(-50%);
+    left: 4px;
     color: var(--text-muted);
     pointer-events: none;
     display: flex;
+    flex: 0 0 auto;
   }
 
   input {
     background: transparent;
     border: none;
-    padding: 13px 0 13px 30px;
+    padding: 13px 12px 13px 30px;
     color: var(--text);
     font-family: 'Inter', sans-serif;
     font-size: 15.5px;
@@ -172,15 +173,27 @@
     margin-top: 12px;
     font-size: 12.5px;
     color: var(--text-muted);
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
   }
-  .hint code {
+  .hint-chip {
     font-family: 'JetBrains Mono', monospace;
     font-size: 11.5px;
     background: var(--surface-2);
     border: 1px solid var(--border);
-    border-radius: 6px;
-    padding: 2px 6px;
+    border-radius: 999px;
+    padding: 3px 9px;
     color: var(--text);
+    cursor: pointer;
+    transition: border-color .15s ease, color .15s ease, background .15s ease;
+  }
+  .hint-chip:hover { border-color: var(--accent-dim); color: var(--accent); }
+  .hint-chip:active { background: var(--accent-glow); }
+  .hint-chip:focus-visible {
+    outline: 2px solid var(--accent-dim);
+    outline-offset: 2px;
   }
 
   /* ---- estado / resumen ---- */
@@ -376,6 +389,80 @@
     display: flex;
   }
 
+  /* ---- layout dos columnas ---- */
+  .layout {
+    display: grid;
+    grid-template-columns: 1fr 300px;
+    gap: 28px;
+    align-items: start;
+    margin-top: 26px;
+  }
+  .main-col { min-width: 0; }
+  .side-col { display: flex; flex-direction: column; gap: 14px; position: sticky; top: 24px; }
+
+  .side-card {
+    background: var(--surface);
+    border: 1px solid var(--border-soft);
+    border-radius: 14px;
+    padding: 16px;
+  }
+  .side-card h2 {
+    margin: 0 0 12px;
+    font-family: 'Space Grotesk', sans-serif;
+    font-size: 13px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--text-muted);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .side-card h2 svg { color: var(--accent-dim); flex: 0 0 auto; }
+
+  .paso {
+    display: flex;
+    gap: 12px;
+    padding: 8px 0;
+    font-size: 13px;
+    line-height: 1.5;
+    color: var(--text);
+  }
+  .paso + .paso { border-top: 1px solid var(--border-soft); }
+  .paso .n {
+    flex: 0 0 auto;
+    width: 22px; height: 22px;
+    border-radius: 7px;
+    display: grid;
+    place-items: center;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    color: var(--text-muted);
+  }
+
+  .chips-tiendas { display: flex; flex-wrap: wrap; gap: 6px; }
+  .chip-tienda {
+    font-size: 11.5px;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    padding: 4px 10px;
+    color: var(--text-muted);
+    transition: border-color .15s ease, color .15s ease;
+  }
+  .chip-tienda:hover { border-color: var(--accent-dim); color: var(--text); }
+  .side-total {
+    margin-top: 10px;
+    font-size: 11.5px;
+    color: var(--text-muted);
+    font-family: 'JetBrains Mono', monospace;
+  }
+
+  .consejo p { margin: 0 0 8px; font-size: 13px; line-height: 1.55; color: var(--text); }
+  .consejo p:last-child { margin-bottom: 0; color: var(--text-muted); }
+
   footer {
     margin-top: 48px;
     padding-top: 18px;
@@ -389,9 +476,209 @@
     flex-wrap: wrap;
     gap: 8px;
   }
+
+  /* ---- indicador de búsqueda en curso ---- */
+  .loading {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 18px;
+    margin-top: 18px;
+    padding: 36px 20px;
+    animation: rise .3s ease both;
+  }
+  .cubo-mini {
+    width: 46px;
+    height: 46px;
+    perspective: 260px;
+  }
+  .cubo-mini .c {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    transform-style: preserve-3d;
+    transform: rotateX(-24deg);
+    animation: mini-gira 1.35s linear infinite;
+  }
+  .cubo-mini .c i {
+    position: absolute;
+    inset: 0;
+    border: 2px solid rgba(110,231,183,.55);
+    border-radius: 7px;
+    background: rgba(110,231,183,.06);
+  }
+  .cubo-mini .c .f { transform: translateZ(23px); }
+  .cubo-mini .c .b { transform: rotateY(180deg) translateZ(23px); }
+  .cubo-mini .c .l { transform: rotateY(-90deg) translateZ(23px); }
+  .cubo-mini .c .r { transform: rotateY(90deg) translateZ(23px); }
+  .cubo-mini .c .u { transform: rotateX(90deg) translateZ(23px); background: rgba(110,231,183,.12); }
+  .cubo-mini .c .d { transform: rotateX(-90deg) translateZ(23px); }
+  @keyframes mini-gira {
+    from { transform: rotateX(-24deg) rotateY(0deg); }
+    to   { transform: rotateX(-24deg) rotateY(360deg); }
+  }
+  .loading .txt {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12.5px;
+    letter-spacing: 0.06em;
+    color: var(--text-muted);
+  }
+  .loading .puntos::after {
+    content: '';
+    animation: puntitos 1.2s steps(4, end) infinite;
+  }
+  @keyframes puntitos {
+    0%   { content: ''; }
+    25%  { content: '.'; }
+    50%  { content: '..'; }
+    75%  { content: '...'; }
+  }
+  .loading .tiempo {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: rgba(139,148,163,.6);
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* ---- responsive ---- */
+  @media (max-width: 1080px) {
+    .layout { grid-template-columns: 1fr; }
+    .side-col { position: static; }
+  }
+
+  @media (max-width: 720px) {
+    .wrap { padding-top: 26px; }
+    header { margin-bottom: 30px; }
+    .search {
+      grid-template-columns: 1fr;
+      padding: 12px;
+    }
+    .search .campo .icon { left: 4px; }
+    button.primary {
+      width: 100%;
+      justify-content: center;
+      padding: 14px 22px;
+    }
+    .metrics { grid-template-columns: 1fr 1fr; }
+    .row { grid-template-columns: 40px 1fr auto; gap: 10px; padding: 12px 12px; }
+    .price { font-size: 15px; }
+  }
+
+  @media (max-width: 480px) {
+    h1 { font-size: 25px; }
+    .tag { display: none; }
+    .row { grid-template-columns: 34px 1fr; }
+    .row .price { grid-column: 2; text-align: left; margin-top: 2px; }
+    .diff { font-size: 10.5px; }
+    .metrics { grid-template-columns: 1fr; }
+    .side-card { padding: 14px; }
+  }
+
+  /* ---- loader: cubo que se abre ---- */
+  .loader {
+    position: fixed;
+    inset: 0;
+    z-index: 100;
+    display: grid;
+    place-items: center;
+    background:
+      radial-gradient(800px 400px at 50% 30%, rgba(110,231,183,0.08), transparent 60%),
+      var(--bg);
+    animation: loader-ocultar .8s ease 2s forwards;
+    pointer-events: none;
+  }
+  @keyframes loader-ocultar {
+    to { opacity: 0; visibility: hidden; }
+  }
+  .loader .escena {
+    width: 150px;
+    height: 150px;
+    perspective: 500px;
+    perspective-origin: 50% 55%;
+    animation: loader-cubo 2.8s ease-in-out .0s both;
+  }
+  @keyframes loader-cubo {
+    0%   { transform: scale(0.4); opacity: 0; }
+    18%  { transform: scale(1); opacity: 1; }
+    45%  { transform: scale(1.12); }
+    62%  { transform: scale(1); }
+    100% { transform: scale(0.5) rotateX(20deg) rotateY(60deg); opacity: 0; }
+  }
+  .cubo {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    transform-style: preserve-3d;
+    transform: rotateX(-18deg) rotateY(-36deg);
+  }
+  .cubo .cara {
+    position: absolute;
+    inset: 0;
+    border: 2px solid rgba(110,231,183,.55);
+    border-radius: 14px;
+    background: rgba(110,231,183,.06);
+    box-shadow: 0 0 18px rgba(110,231,183,.15);
+  }
+  .cubo .frente { transform: translateZ(24px); }
+  .cubo .atras  { transform: rotateY(180deg) translateZ(24px); background: rgba(110,231,183,.10); }
+  .cubo .izq    { transform: rotateY(-90deg) translateZ(24px); }
+  .cubo .der    { transform: rotateY(90deg)  translateZ(24px); }
+  .cubo .arriba { transform: rotateX(90deg)  translateZ(24px); background: rgba(110,231,183,.10); }
+  .cubo .abajo  { transform: rotateX(-90deg) translateZ(24px); }
+  .cubo .tapa {
+    inset: 0;
+    border-color: rgba(110,231,183,.9);
+    background: linear-gradient(135deg, rgba(110,231,183,.22), rgba(16,185,129,.14));
+    box-shadow: 0 0 30px rgba(110,231,183,.35);
+    animation: tapa 2.8s ease-in-out .0s both;
+  }
+  @keyframes tapa {
+    0%, 20%   { transform: rotateX(0deg) translateZ(24px); opacity: 0; }
+    25%, 70%  { transform: rotateX(0deg) translateZ(24px); opacity: 1; }
+    85%, 100% { transform: rotateX(-160deg) translateZ(-10px); opacity: 0; }
+  }
+  .loader .marca {
+    position: absolute;
+    bottom: 22px;
+    left: 0;
+    right: 0;
+    text-align: center;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    animation: loader-marca 2.8s ease-in-out .0s both;
+  }
+  @keyframes loader-marca {
+    0%, 12% { opacity: 0; letter-spacing: .4em; }
+    25%, 70% { opacity: 1; letter-spacing: .18em; }
+    100% { opacity: 0; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .loader { animation: none; }
+    .loader .escena, .loader .cubo .tapa, .loader .marca { animation: none; opacity: 1; }
+  }
 </style>
 </head>
 <body>
+  <div class="loader" id="loader" aria-label="Cargando BuscaPorMí">
+    <div class="escena">
+      <div class="cubo">
+        <div class="cara frente"></div>
+        <div class="cara atras"></div>
+        <div class="cara izq"></div>
+        <div class="cara der"></div>
+        <div class="cara arriba"></div>
+        <div class="cara abajo"></div>
+        <div class="cara tapa"></div>
+      </div>
+    </div>
+    <div class="marca">BuscaPorMí</div>
+  </div>
+
   <div class="wrap">
     <header>
       <div class="brand">
@@ -407,19 +694,61 @@
     </section>
 
     <form id="search-form" class="search">
-      <svg class="icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
-      <input id="query" type="text" placeholder="¿Qué producto buscás?" autocomplete="off" required />
+      <div class="campo">
+        <svg class="icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+        <input id="query" type="text" placeholder="¿Qué producto buscás?" autocomplete="off" required />
+      </div>
       <button type="submit" id="submit-btn" class="primary">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
         Buscar
       </button>
     </form>
-    <p class="hint">Probá: <code>iphone 17 pro max</code> · <code>laptop lenovo ideapad</code> · <code>camara hikvision</code></p>
+    <p class="hint">Probá:
+      <button type="button" class="hint-chip" data-q="iphone 17 pro max">iphone 17 pro max</button>
+      <button type="button" class="hint-chip" data-q="laptop lenovo ideapad">laptop lenovo ideapad</button>
+      <button type="button" class="hint-chip" data-q="camara hikvision">camara hikvision</button>
+    </p>
 
-    <div class="status" id="status" hidden>
-      <span class="dot"></span><span id="status-text"></span>
+    <div class="layout">
+      <div class="main-col">
+        <div class="status" id="status" hidden>
+          <span class="dot"></span><span id="status-text"></span>
+        </div>
+        <div id="results-container"></div>
+
+        <div class="loading" id="loading" hidden>
+          <div class="cubo-mini" aria-hidden="true">
+            <div class="c">
+              <i class="f"></i><i class="b"></i><i class="l"></i>
+              <i class="r"></i><i class="u"></i><i class="d"></i>
+            </div>
+          </div>
+          <div class="txt">Consultando las tiendas<span class="puntos"></span></div>
+          <div class="tiempo" id="loading-tiempo"></div>
+        </div>
+      </div>
+
+      <aside class="side-col">
+        <div class="side-card">
+          <h2><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M5 20h.01"/><path d="M5 3h13a1 1 0 0 1 1 1v17"/><path d="M5 3a1 1 0 0 0-1 1v17a1 1 0 0 0 1 1"/><path d="M8 12h8"/></svg>¿Cómo funciona?</h2>
+          <div class="paso"><span class="n">1</span><span>Escribí el producto tal cual, con su nombre y modelo.</span></div>
+          <div class="paso"><span class="n">2</span><span>Consultamos el buscador de cada tienda en paralelo.</span></div>
+          <div class="paso"><span class="n">3</span><span>Se descartan accesorios, combos y variantes que no correspondan, y se ordena de más barato a más caro.</span></div>
+        </div>
+
+        <div class="side-card">
+          <h2><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M9 22V12h6v10"/></svg>Tiendas consultadas</h2>
+          <div class="chips-tiendas" id="chips-tiendas"></div>
+          <div class="side-total" id="side-total"></div>
+        </div>
+
+        <div class="side-card consejo">
+          <h2><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2l2.4 4.9 5.4.8-3.9 3.8.9 5.4-4.8-2.5-4.8 2.5.9-5.4-3.9-3.8 5.4-.8z"/></svg>Consejo</h2>
+          <p>Los resultados cuyo enlace responde <strong>404 / no encontrado</strong> se quitan solos: no mostramos productos que ya no existen.</p>
+          <p>Si algo no aparece, probá con un nombre más corto: <em>"rtx 5060"</em> rinde mejor que <em>"tarjeta de video nvidia geforce rtx 5060 8gb"</em>.</p>
+        </div>
+      </aside>
     </div>
-    <div id="results-container"></div>
 
     <footer>
       <span>BuscaPorMí · tu IA personal para encontrar el mejor precio</span>
@@ -433,6 +762,37 @@
   const statusText = document.getElementById('status-text');
   const resultsContainer = document.getElementById('results-container');
   const submitBtn = document.getElementById('submit-btn');
+
+  // El cubo que abre al cargar la app: la animación dura ~3s y luego se quita
+  // el overlay por si el navegador no disparó 'load' (p.ej. request lento).
+  const loader = document.getElementById('loader');
+  function ocultarLoader() {
+    if (loader && loader.parentNode) setTimeout(() => loader.remove(), 3000);
+  }
+  window.addEventListener('load', ocultarLoader);
+  setTimeout(ocultarLoader, 500);
+
+  async function cargarTiendas() {
+    const chips = document.getElementById('chips-tiendas');
+    const total = document.getElementById('side-total');
+    try {
+      const res = await fetch('/api/tiendas');
+      const data = await res.json();
+      chips.replaceChildren(...data.tiendas.map(t => elemento('span', 'chip-tienda', t)));
+      total.textContent = `${data.total} tiendas en paralelo`;
+    } catch { /* sin conexión: el sidebar solo muestra el resto */ }
+  }
+  cargarTiendas();
+
+  // Los chips de ejemplo ("Probá:") llenan y disparan la búsqueda al tocarlos,
+  // sobre todo en celular donde escribir es incómodo.
+  document.querySelectorAll('.hint-chip').forEach(chip => {
+    chip.addEventListener('click', () => {
+      const input = document.getElementById('query');
+      input.value = chip.dataset.q;
+      form.requestSubmit();
+    });
+  });
 
   function estado(mensaje) {
     statusText.textContent = mensaje;
@@ -510,10 +870,20 @@
     const query = document.getElementById('query').value.trim();
     if (!query) return;
 
+    const loading = document.getElementById('loading');
+    const tiempoEl = document.getElementById('loading-tiempo');
+    const inicio = Date.now();
+    const timer = setInterval(() => {
+      const s = Math.max(0, Math.round((Date.now() - inicio) / 1000));
+      tiempoEl.textContent = `${s.toFixed(0).padStart(2, '0')}s`;
+    }, 200);
+
     submitBtn.disabled = true;
     submitBtn.textContent = 'Buscando…';
     estado(`Consultando competidores para "${query}"…`);
     resultsContainer.replaceChildren();
+    loading.hidden = false;
+    tiempoEl.textContent = '00s';
 
     try {
       const res = await fetch(`/api/buscar?q=${encodeURIComponent(query)}`);
@@ -581,6 +951,8 @@
         'No se pudo conectar con el servidor. Verificá que la app esté corriendo.');
       estado('');
     } finally {
+      clearInterval(timer);
+      loading.hidden = true;
       submitBtn.disabled = false;
       submitBtn.textContent = 'Buscar';
     }

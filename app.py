@@ -23,6 +23,7 @@ from flask import Flask, jsonify, render_template, request
 
 from catalog_db import inicializar_db
 from price_checker import buscar
+from stores import TIENDAS
 
 app = Flask(__name__)
 
@@ -35,6 +36,16 @@ inicializar_db()
 @app.route("/")
 def index():
     return render_template("index.html")
+
+
+@app.route("/api/tiendas")
+def api_tiendas():
+    return jsonify(
+        {
+            "tiendas": [t.name for t in TIENDAS],
+            "total": len(TIENDAS),
+        }
+    )
 
 
 @app.route("/api/buscar")

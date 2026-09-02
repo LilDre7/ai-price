@@ -86,14 +86,18 @@ def _enlace_roto(enlace: str) -> bool:
 
 def _descartar_rotos(resultados: List[ProductResult]) -> List[ProductResult]:
     """Elimina de la lista los resultados cuyo enlace esté roto (404/not found),
-    para no mostrar un 'mejor precio' que ya no existe en la tienda."""
+    para no mostrar un 'mejor precio' que ya no existe en la tienda.
+    Conserva el orden de la lista original (la IA y el filtro de texto ya la
+    dejaron ordenada)."""
     vivos = []
     rotos = 0
     validos = [r for r in resultados if r.url and r.url.startswith("http")]
+    if not validos:
+        return resultados, rotos
     with ThreadPoolExecutor(max_workers=len(validos)) as pool:
-        futuros = {pool.submit(_enlace_roto, r.url): r for r in validos}
+        futuros = {pool.submit(_enlace_roto, r.url): i for i, r in enumerate(validos)}
         for futuro in as_completed(futuros):
-            r = futuros[futuro]
+            r = validos[futuros[futuro]]
             try:
                 roto = futuro.result()
             except Exception:
@@ -101,8 +105,8 @@ def _descartar_rotos(resultados: List[ProductResult]) -> List[ProductResult]:
             if roto:
                 rotos += 1
             else:
-                vivos.append(r)
-    return vivos, rotos
+                vivos.append((futuros[futuro], r))
+    return [r for _, r in sorted(vivos)], rotos
 
 
 def recolectar_candidatos(query: str, verbose: bool = False) -> List[ProductResult]:
@@ -158,14 +162,14 @@ def buscar(query: str, verbose: bool = False) -> Dict:
     if nombres_validos is None:
         # La IA no está configurada o falló (sin crédito, error de red, etc.).
         # Caemos al filtro de texto en vez de mostrar la lista sucia.
+        # _filtro_de_texto ya devuelve ordenado por relevancia + precio.
         resultados = _filtro_de_texto(query, candidatos)
         filtrado_por = "texto"
     else:
         validos = set(nombres_validos)
         resultados = [c for c in candidatos if c.nombre in validos]
         filtrado_por = "ia"
-
-    resultados.sort(key=lambda r: (r.precio is None, r.precio or 0))
+        resultados.sort(key=lambda r: (r.precio is None, r.precio or 0))
 
     # Precisión al máximo: un resultado cuyo enlace esté roto (404/not found)
     # no se muestra, y se reporta cuántos se descartaron para que la info
@@ -183,26 +187,98 @@ def buscar(query: str, verbose: bool = False) -> Dict:
 
 def _filtro_de_texto(query: str, candidatos: List[ProductResult]) -> List[ProductResult]:
     """
-    Respaldo cuando no hay ANTHROPIC_API_KEY configurada.
+    Respaldo cuando la IA no está disponible (sin crédito, error de red, etc.).
 
-    Es notablemente peor que la IA: exige que TODAS las palabras de la
-    búsqueda aparezcan en el nombre, así que se le escapan los productos
-    escritos distinto ("A515-58P Aspire 5" no matchea "aspire 5 acer").
-    Sirve para que el sistema no quede inutilizable, nada más.
+    Mejor que el simple "todas las palabras en el nombre": además de exigir
+    que aparezcan las palabras de la búsqueda, descarta accesorios/complementos
+    que contienen esas palabras pero no SON el producto (un "Protector iPhone
+    15" no es un iPhone 15), y ordena por PRECIO DENTRO de la relevancia para
+    que el producto real (que suele ser el más caro) no quede tapado por un
+    accesorio barato.
+
+    Devolvemos la lista ya ordenada: mejor precio y más parecido primero.
     """
-    palabras = [p for p in query.lower().split() if len(p) > 1]
-    descartes = ("combo", "kit")
-    pide_combo = any(d in query.lower() for d in descartes)
+    palabras = [p for p in _palabras_de(query) if p]
+    claves = _claves(query)
+
+    # Accesorios/complementos que contienen las palabras buscadas pero NO son
+    # el producto en sí ("para iPhone 15", "para PS5"...). Solo se descartan
+    # si el usuario NO los pidió explícitamente ("cargador iphone" sí quiere
+    # el cargador). Se matchean por PREFIJO de palabra para cubrir variantes
+    # ("protector" descarta "protectores"/"protector pantalla").
+    no_corresponden = (
+        # Accesorios y complementos
+        "protector", "vidrio", "templado", "carcasa", "funda", "forro",
+        "estuche", "case", "cover", "cargador", "cable", "adaptador",
+        "soporte", "holder", "stand", "vinilo", "sticker", "alien",
+        "repuesto", "lente", "batería",
+        "bolsa", "impermeable", "silicona", "grip", "tripode",
+        "bandolera", "correa", "mica",
+        # Kits y combos
+        "combo", "kit",
+        # Cosas que se agregan solas con la palabra buscada
+        "juguete", "figura", "accesorio",
+    )
+
+    def es_accesorio(nombre: str) -> bool:
+        for d in no_corresponden:
+            raiz = d.split()[0]
+            # Si el usuario buscó la raíz ("forro", "cargador", "correa"...)
+            # entonces esos productos SÍ corresponden y no se descartan.
+            if raiz in claves:
+                continue
+            # Matchea la raíz como palabra, permitiendo sufijos
+            # ("protector" pega con "protectores", "case" con "case-it").
+            if " " + raiz in nombre or nombre.startswith(raiz):
+                return True
+        return False
 
     filtrados = []
     for c in candidatos:
         nombre = c.nombre.lower()
         if not all(p in nombre for p in palabras):
             continue
-        if not pide_combo and any(d in nombre for d in descartes):
+        if es_accesorio(nombre):
             continue
         filtrados.append(c)
+
+    # Relevancia: cuanto más "pegado" esté el nombre a la búsqueda, primero.
+    def parecido(c):
+        nombre = c.nombre.lower()
+        # Núcleo exacto: todas las claves en orden consecutivo y en el mismo
+        # orden que la búsqueda "iphone 15" => (1, ...) el producto real.
+        # Después (2) la frase completa en cualquier orden, (3) luego por
+        # cuántas claves aparecen y (4) por precio (el más barato primero).
+        frase = " ".join(claves)
+        exacto = int(frase in nombre)
+        total_idas = sum(nombre.count(p) for p in claves)
+        precio = c.precio if c.precio is not None else float("inf")
+        return (-exacto, -total_idas, precio)
+
+    filtrados.sort(key=parecido)
     return filtrados
+
+
+def _palabras_de(query: str) -> List[str]:
+    """Palabras significativas de la búsqueda (se descartan artículos y
+    preposiciones que solo agregan ruido: "para", "de", "con"...)."""
+    ruido = {
+        "para", "de", "con", "el", "la", "los", "las", "un", "una",
+        "en", "y", "a", "por", "del", "que", "se", "su", "tu",
+    }
+    return [p for p in query.lower().split() if len(p) > 1 and p not in ruido]
+
+
+def _claves(query: str) -> List[str]:
+    """Términos clave de la búsqueda: palabras significativas excluyendo los
+    números sueltos de variantes (un "15" solo no define el producto si ya hay
+    "iphone"). Se usan para medir qué tan parecido es un candidato."""
+    palabras = _palabras_de(query)
+    if len(palabras) <= 1:
+        return palabras
+    # Si queda un solo número suelto (ej. "15"), no aporta a la frase núcleo.
+    sin_numero = [p for p in palabras if not p.isdigit()]
+    return sin_numero or palabras
 
 
 # ---------------------------------------------------------------------------
