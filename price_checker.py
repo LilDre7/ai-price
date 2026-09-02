@@ -4,7 +4,7 @@ GD Computadoras - Comparador de precios de competencia
 CÓMO FUNCIONA UNA BÚSQUEDA:
   1. El vendedor escribe lo que sea ("iphone 17 pro max", "router tp-link
      ax3000", "camara hikvision domo").
-  2. Esa búsqueda se le pasa AL BUSCADOR DE CADA TIENDA, las 8 en paralelo.
+  2. Esa búsqueda se le pasa AL BUSCADOR DE CADA TIENDA, todas en paralelo.
      Cada una responde con sus candidatos (stores.py sabe cómo leer cada sitio).
   3. Los buscadores de las tiendas son flojos y devuelven cosas que no son lo
      buscado. Entonces la IA (ai_matcher.py) revisa la lista junta y deja solo

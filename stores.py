@@ -37,8 +37,8 @@ MAX_POR_TIENDA = 12  # tope de candidatos por tienda, para no inflar el prompt d
 
 HEADERS = {
     "User-Agent": (
-        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
-        "(KHTML, like Gecko) Chrome/120.0 Safari/537.36"
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+        "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
     ),
     "Accept-Language": "es-CR,es;q=0.9",
 }
@@ -230,14 +230,16 @@ class WalmartTienda(Tienda):
 
 
 # ---------------------------------------------------------------------------
-# 2. TechZilla - WooCommerce Store API (JSON público, sin autenticación)
-#    Especialista en componentes y enfriamiento líquido: buscar "laptop"
-#    acá da poco, y eso es su catálogo real, no un error.
+# 2. WooCommerce Store API (JSON público, sin autenticación)
+#    Base compartida por todas las tiendas WooCommerce de Costa Rica que
+#    exponen /wp-json/wc/store/v1/products: TechZilla, TICOTEK, CV Electrónica
+#    e Intek. Todas devuelven el precio en la misma forma, solo cambian
+#    name/base/API.
 # ---------------------------------------------------------------------------
-class TechZillaTienda(Tienda):
-    name = "TechZilla"
-    base = "https://techzilla.cr"
-    API = "https://techzilla.cr/wp-json/wc/store/v1/products"
+class WooCommerceApiTienda(Tienda):
+    name = ""
+    base = ""
+    API = ""
 
     def buscar(self, query: str) -> List[ProductResult]:
         resp = self._get(self.API, {"search": query, "per_page": MAX_POR_TIENDA})
@@ -273,6 +275,36 @@ class TechZillaTienda(Tienda):
                 )
             )
         return resultados
+
+
+class TechZillaTienda(WooCommerceApiTienda):
+    # Especialista en componentes y enfriamiento líquido: buscar "laptop"
+    # acá da poco, y eso es su catálogo real, no un error.
+    name = "TechZilla"
+    base = "https://techzilla.cr"
+    API = "https://techzilla.cr/wp-json/wc/store/v1/products"
+
+
+class TicotekTienda(WooCommerceApiTienda):
+    # Especialista en componentes de PC y gaming (tarjetas de video,
+    # procesadores, memorias, monitores).
+    name = "TICOTEK"
+    base = "https://www.ticotek.com"
+    API = "https://www.ticotek.com/wp-json/wc/store/v1/products"
+
+
+class CvElectronicaTienda(WooCommerceApiTienda):
+    # Electrónica, componentes, audio, seguridad y cómputo.
+    name = "CV Electrónica"
+    base = "https://cvelectronica.com"
+    API = "https://cvelectronica.com/wp-json/wc/store/v1/products"
+
+
+class IntekTienda(WooCommerceApiTienda):
+    # Catálogo chico (~105 items): equipos recertificados, outlet y ensambles.
+    name = "Intek"
+    base = "https://intekcr.com"
+    API = "https://intekcr.com/wp-json/wc/store/v1/products"
 
 
 # ---------------------------------------------------------------------------
@@ -532,6 +564,9 @@ TIENDAS: List[Tienda] = [
     # En vivo: le pasan la búsqueda al buscador de la tienda
     WalmartTienda(),
     TechZillaTienda(),
+    TicotekTienda(),
+    CvElectronicaTienda(),
+    IntekTienda(),
     AtekTienda(),
     GolloTienda(),
     CyberTeamTienda(),
