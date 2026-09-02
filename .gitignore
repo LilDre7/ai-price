@@ -1,0 +1,7 @@
+.env
+venv/
+__pycache__/
+*.pyc
+.commandcode/
+# catalogo.db SÍ va al repo: en Render no existe un cron que lo genere en el
+# servidor, así que se sube la copia local y se regenera con build_catalog.py.
