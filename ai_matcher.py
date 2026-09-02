@@ -1,5 +1,5 @@
 """
-GD Computadoras - Filtro de precisión con IA
+BuscaPorMí - Filtro de precisión con IA
 
 Este módulo recibe una lista "cruda" de productos (ya filtrados solo por
 marca, sin filtro estricto de texto) y usa un LLM para decidir cuáles

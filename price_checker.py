@@ -1,5 +1,5 @@
 """
-GD Computadoras - Comparador de precios de competencia
+BuscaPorMí - Comparador de precios de competencia
 
 CÓMO FUNCIONA UNA BÚSQUEDA:
   1. El vendedor escribe lo que sea ("iphone 17 pro max", "router tp-link
@@ -22,6 +22,8 @@ USO POR CONSOLA:
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Dict, List
 
+import requests
+
 from stores import TIENDAS, ProductResult
 
 # Las tiendas responden en paralelo, así que una búsqueda tarda lo que tarda
@@ -41,6 +43,66 @@ def _sin_duplicados(resultados: List[ProductResult]) -> List[ProductResult]:
         vistos.add(clave)
         unicos.append(r)
     return unicos
+
+
+_SESSION = requests.Session()
+_SESSION.headers.update(
+    {
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+            "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+        ),
+        "Accept-Language": "es-CR,es;q=0.9",
+    }
+)
+
+
+def _enlace_roto(enlace: str) -> bool:
+    """True si el enlace de un producto está bien muerto (404 real o página
+    'not found' disfrazada). Los 'soft 404' (200 pero vacío) no se siguen
+    parando: el título o el cuerpo delatan la página perdida.
+
+    Evitamos hacer GET completos de páginas pesadas con métodos HEAD; si la
+    tienda no lo soporta (responde 405/403), caemos a un GET corto."""
+
+    def cabeceras():
+        return _SESSION.head(enlace, timeout=15, allow_redirects=True)
+
+    try:
+        r = cabeceras()
+    except requests.RequestException:
+        return True
+    if r.status_code == 405 or r.status_code == 403:
+        # HEAD no soportado o bloqueado: probamos un GET liviano
+        try:
+            r = _SESSION.get(enlace, timeout=15, stream=True)
+            r.raise_for_status()
+            r.close()
+            return r.status_code >= 400
+        except requests.RequestException:
+            return True
+    return r.status_code >= 400
+
+
+def _descartar_rotos(resultados: List[ProductResult]) -> List[ProductResult]:
+    """Elimina de la lista los resultados cuyo enlace esté roto (404/not found),
+    para no mostrar un 'mejor precio' que ya no existe en la tienda."""
+    vivos = []
+    rotos = 0
+    validos = [r for r in resultados if r.url and r.url.startswith("http")]
+    with ThreadPoolExecutor(max_workers=len(validos)) as pool:
+        futuros = {pool.submit(_enlace_roto, r.url): r for r in validos}
+        for futuro in as_completed(futuros):
+            r = futuros[futuro]
+            try:
+                roto = futuro.result()
+            except Exception:
+                roto = True
+            if roto:
+                rotos += 1
+            else:
+                vivos.append(r)
+    return vivos, rotos
 
 
 def recolectar_candidatos(query: str, verbose: bool = False) -> List[ProductResult]:
@@ -73,7 +135,7 @@ def buscar(query: str, verbose: bool = False) -> Dict:
 
     query = (query or "").strip()
     if not query:
-        return {"query": "", "resultados": [], "candidatos": 0, "filtrado_por": "nada"}
+        return {"query": "", "resultados": [], "candidatos": 0, "filtrado_por": "nada", "enlaces_caidos": 0}
 
     candidatos = recolectar_candidatos(query, verbose=verbose)
     total_candidatos = len(candidatos)
@@ -84,6 +146,7 @@ def buscar(query: str, verbose: bool = False) -> Dict:
             "resultados": [],
             "candidatos": 0,
             "filtrado_por": "nada",
+            "enlaces_caidos": 0,
         }
 
     nombres_validos = None
@@ -104,11 +167,17 @@ def buscar(query: str, verbose: bool = False) -> Dict:
 
     resultados.sort(key=lambda r: (r.precio is None, r.precio or 0))
 
+    # Precisión al máximo: un resultado cuyo enlace esté roto (404/not found)
+    # no se muestra, y se reporta cuántos se descartaron para que la info
+    # sea clara y no se le dé al vendedor un 'mejor precio' que no existe.
+    resultados, enlaces_caidos = _descartar_rotos(resultados)
+
     return {
         "query": query,
         "resultados": resultados,
         "candidatos": total_candidatos,
         "filtrado_por": filtrado_por,
+        "enlaces_caidos": enlaces_caidos,
     }
 
 
@@ -156,6 +225,8 @@ def imprimir_tabla(reporte: Dict):
         f"\n{len(resultados)} resultado(s) de {reporte['candidatos']} candidatos "
         f"(filtro: {reporte['filtrado_por']})\n"
     )
+    if reporte.get("enlaces_caidos"):
+        print(f"  ⚠️  Se descartaron {reporte['enlaces_caidos']} resultado(s) porque su enlace está roto (404/not found).\n")
     print(f"{'Tienda':<12}{'Producto':<52}{'Precio':<14}{'vs. mejor':<10}")
     print("-" * 88)
     for r in resultados:
@@ -173,7 +244,7 @@ def imprimir_tabla(reporte: Dict):
 
 
 if __name__ == "__main__":
-    print("=== GD Computadoras - Comparador de Precios ===\n")
+    print("=== BuscaPorMí - Comparador de Precios ===\n")
     consulta = input("¿Qué producto buscás?: ").strip()
     print("\nConsultando tiendas...")
     imprimir_tabla(buscar(consulta, verbose=True))

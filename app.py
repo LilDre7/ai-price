@@ -1,5 +1,5 @@
 """
-GD Computadoras - Comparador de Precios
+BuscaPorMí - Comparador de Precios
 Backend Flask: sirve la página y expone /api/buscar
 
 EJECUTAR:
@@ -57,6 +57,7 @@ def api_buscar():
             "query": reporte["query"],
             "candidatos": reporte["candidatos"],
             "filtrado_por": reporte["filtrado_por"],
+            "enlaces_caidos": reporte.get("enlaces_caidos", 0),
             "total": len(reporte["resultados"]),
             "resultados": [
                 {

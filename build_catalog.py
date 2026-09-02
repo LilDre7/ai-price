@@ -1,5 +1,5 @@
 """
-GD Computadoras - Constructor del catálogo local
+BuscaPorMí - Constructor del catálogo local
 
 PARA QUÉ:
 La mayoría de los competidores se consultan en vivo: stores.py le pasa la

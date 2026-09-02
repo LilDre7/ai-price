@@ -1,5 +1,5 @@
 """
-GD Computadoras - Adaptadores de tienda (uno por competidor)
+BuscaPorMí - Adaptadores de tienda (uno por competidor)
 
 CÓMO FUNCIONA:
 Cada competidor tiene su PROPIO buscador. En vez de bajarnos su catálogo
@@ -12,7 +12,9 @@ El filtro de precisión con IA vive en ai_matcher.py y corre después, sobre
 la lista junta de todas las tiendas.
 
 TRES FORMAS DE LEER UNA TIENDA (de mejor a peor):
-  1. API JSON propia del sitio  -> Walmart, TechZilla, ATEKCR
+  1. API JSON propia del sitio  -> Walmart, Shopify (ATEKCR, Vicortech, Ubalux),
+                                   WooCommerce (TechZilla, TICOTEK, CV, Intek,
+                                   IGaming, Dataland, BreakingTechnology)
   2. HTML de la página de búsqueda -> Gollo, CyberTeam, PCTODOCR, MExpress
   3. Catálogo local cacheado     -> Intelec (su buscador está tras Cloudflare)
 
@@ -130,6 +132,35 @@ def precio_de_tarjeta(tarjeta, selector_precio: str) -> Optional[int]:
 
 
 # ---------------------------------------------------------------------------
+# Páginas "not found"
+# ---------------------------------------------------------------------------
+_PATRON_NO_ENCONTRADA = re.compile(
+    r"\b404\b|not ?found|no se encontr(?:ó|o|aron)|"
+    r"p[áa]gina no encontrada|no (?:hay|encontramo)|"
+    r"no hay resultados|sin resultados|no results|"
+    r"producto no disponible",
+    re.IGNORECASE,
+)
+
+
+def es_pagina_no_encontrada(soup) -> bool:
+    """True si la página parece un 404/'not found' disfrazado de página 200
+    (los llamados 'soft 404'). Algunas tiendas flojas responden 200 con el
+    mensaje de error dentro del HTML normal, o devuelven el título del
+    producto anterior con el cuerpo vacío."""
+    if soup is None:
+        return True
+    piezas = []
+    if soup.title:
+        piezas.append(soup.title.get_text(" ", strip=True))
+    h1 = soup.select_one("h1")
+    if h1:
+        piezas.append(h1.get_text(" ", strip=True))
+    texto = " ".join(piezas).lower()
+    return bool(texto and _PATRON_NO_ENCONTRADA.search(texto))
+
+
+# ---------------------------------------------------------------------------
 # Interfaz base
 # ---------------------------------------------------------------------------
 class Tienda(ABC):
@@ -152,6 +183,24 @@ class Tienda(ABC):
         except requests.RequestException:
             return None
         return resp if resp.status_code == 200 else None
+
+    def _get_html(self, url: str, params: Optional[dict] = None):
+        """GET de una página HTML devolviendo el BeautifulSoup, o None.
+
+        Si la tienda responde 200 pero es una página de 'no encontrado',
+        la tratamos como si no existiera: parsear su decoración como si
+        fueran productos ensuciaría la lista de candidatos.
+        """
+        resp = self._get(url, params)
+        if resp is None:
+            return None
+        try:
+            soup = BeautifulSoup(resp.text, "html.parser")
+        except Exception:
+            return None
+        if es_pagina_no_encontrada(soup):
+            return None
+        return soup
 
     def _absoluta(self, href: str) -> str:
         return urljoin(self.base, href) if href else self.base
@@ -307,13 +356,40 @@ class IntekTienda(WooCommerceApiTienda):
     API = "https://intekcr.com/wp-json/wc/store/v1/products"
 
 
+class IGamingTienda(WooCommerceApiTienda):
+    # Gaming y PC hardware: tarjetas de video, procesadores, memorias,
+    # monitores, sillas y accesorios.
+    name = "IGaming"
+    base = "https://igamingcr.com"
+    API = "https://igamingcr.com/wp-json/wc/store/v1/products"
+
+
+class DatalandTienda(WooCommerceApiTienda):
+    # Componentes de PC: procesadores, tarjetas de video, RAM, fuentes de
+    # poder, gabinetes y refrigeración. Precios en colones (minor_unit 0).
+    name = "Dataland"
+    base = "https://datalandcr.com"
+    API = "https://datalandcr.com/wp-json/wc/store/v1/products"
+
+
+class BreakingTechnologyTienda(WooCommerceApiTienda):
+    # Laptops, desktops y componentes con precio en colones (minor_unit 2,
+    # o sea el JSON trae 87500000 = 875.000, ya lo maneja la base).
+    name = "BreakingTechnology"
+    base = "https://btcr.cr"
+    API = "https://btcr.cr/wp-json/wc/store/v1/products"
+
+
 # ---------------------------------------------------------------------------
-# 3. ATEKCR - Shopify, endpoint de sugerencias (JSON)
+# 3. Shopify, endpoint de sugerencias (JSON)
+#    ATEKCR, Vicortech y Ubalux usan la misma plataforma: /search/suggest.json
+#    les pasa la búsqueda y devuelven productos con precio. Solo cambia el
+#    dominio y el nombre a mostrar.
 # ---------------------------------------------------------------------------
-class AtekTienda(Tienda):
-    name = "ATEKCR"
-    base = "https://atekcr.com"
-    API = "https://atekcr.com/search/suggest.json"
+class ShopifyTienda(Tienda):
+    name = ""
+    base = ""
+    API = ""
 
     def buscar(self, query: str) -> List[ProductResult]:
         resp = self._get(
@@ -349,6 +425,28 @@ class AtekTienda(Tienda):
         return resultados
 
 
+class AtekTienda(ShopifyTienda):
+    name = "ATEKCR"
+    base = "https://atekcr.com"
+    API = "https://atekcr.com/search/suggest.json"
+
+
+class VicortechTienda(ShopifyTienda):
+    # Celulares, relojes inteligentes, gaming, monitores, computadoras,
+    # electrodomésticos y cuidado personal. Precios en colones.
+    name = "Vicortech"
+    base = "https://tiendavicortech.com"
+    API = "https://tiendavicortech.com/search/suggest.json"
+
+
+class UbaluxTienda(ShopifyTienda):
+    # Tecnología y gadgets para el hogar: audífonos, smartwatches,
+    # televisores, streaming, redes. Precios en colones.
+    name = "Ubalux"
+    base = "https://ubalux.com"
+    API = "https://ubalux.com/search/suggest.json"
+
+
 # ---------------------------------------------------------------------------
 # 4. Gollo - Magento, página de búsqueda
 #    Repite cada producto dos veces en el HTML (vista grid + lista); la
@@ -359,10 +457,9 @@ class GolloTienda(Tienda):
     base = "https://www.gollo.com"
 
     def buscar(self, query: str) -> List[ProductResult]:
-        resp = self._get(f"{self.base}/catalogsearch/result/", {"q": query})
-        if not resp:
+        soup = self._get_html(f"{self.base}/catalogsearch/result/", {"q": query})
+        if not soup:
             return []
-        soup = BeautifulSoup(resp.text, "html.parser")
 
         resultados = []
         for tarjeta in soup.select("li.product-item, .product-item-info")[: MAX_POR_TIENDA * 2]:
@@ -393,10 +490,9 @@ class CyberTeamTienda(Tienda):
     base = "https://cyberteamcr.com"
 
     def buscar(self, query: str) -> List[ProductResult]:
-        resp = self._get(f"{self.base}/search", {"q": query})
-        if not resp:
+        soup = self._get_html(f"{self.base}/search", {"q": query})
+        if not soup:
             return []
-        soup = BeautifulSoup(resp.text, "html.parser")
 
         resultados = []
         for tarjeta in soup.select("div.product-card-dark")[:MAX_POR_TIENDA]:
@@ -428,10 +524,9 @@ class PcTodoTienda(Tienda):
     base = "https://www.pctodocr.com"
 
     def buscar(self, query: str) -> List[ProductResult]:
-        resp = self._get(f"{self.base}/", {"s": query, "post_type": "product"})
-        if not resp:
+        soup = self._get_html(f"{self.base}/", {"s": query, "post_type": "product"})
+        if not soup:
             return []
-        soup = BeautifulSoup(resp.text, "html.parser")
 
         resultados = []
         for tarjeta in soup.select("article.product-card, .product-card")[:MAX_POR_TIENDA]:
@@ -469,10 +564,9 @@ class MExpressTienda(Tienda):
         return resp if resp.status_code == 200 else None
 
     def buscar(self, query: str) -> List[ProductResult]:
-        resp = self._get(f"{self.base}/search", {"q": query})
-        if not resp:
+        soup = self._get_html(f"{self.base}/search", {"q": query})
+        if not soup:
             return []
-        soup = BeautifulSoup(resp.text, "html.parser")
 
         resultados = []
         for caja in soup.select(".item-box")[:MAX_POR_TIENDA]:
@@ -554,24 +648,32 @@ class MongeTienda(TiendaCatalogoLocal):
 # Registro central. Agregar una tienda nueva = una línea más acá.
 #
 # Verificadas y funcionando. No incluidas, con razón:
+#   Compatibles pero en dólares (no en colones): HighTechCR, RavenCorp?
 #   ExtremeTech (extremetechcr.com)   403 de Cloudflare en todo el sitio
 #   Faith Technology (faithtechnologycr.com) 403 de Cloudflare
 #   Sintec (sinteccr.com)             no publica precios, vende por cotización
 #   Star Computers                    no tiene sitio web, solo TikTok/Threads
 #   PriceSmart                        Next.js, sus rutas de API dan 404/500
+#   CompuComponentes / CQNet          buscador no devuelve productos (PrestaShop
+#                                     o catálogo no indexado)
 # ---------------------------------------------------------------------------
 TIENDAS: List[Tienda] = [
     # En vivo: le pasan la búsqueda al buscador de la tienda
-    WalmartTienda(),
+    AtekTienda(),
+    BreakingTechnologyTienda(),
+    CvElectronicaTienda(),
+    CyberTeamTienda(),
+    DatalandTienda(),
+    GolloTienda(),
+    IGamingTienda(),
+    IntekTienda(),
+    MExpressTienda(),
+    PcTodoTienda(),
     TechZillaTienda(),
     TicotekTienda(),
-    CvElectronicaTienda(),
-    IntekTienda(),
-    AtekTienda(),
-    GolloTienda(),
-    CyberTeamTienda(),
-    PcTodoTienda(),
-    MExpressTienda(),
+    UbaluxTienda(),
+    VicortechTienda(),
+    WalmartTienda(),
     # Desde el catálogo local que arma build_catalog.py
     IntelecTienda(),
     MongeTienda(),

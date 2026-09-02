@@ -1,5 +1,5 @@
 """
-GD Computadoras - Base de datos local del catálogo (caché)
+BuscaPorMí - Base de datos local del catálogo (caché)
 
 En vez de golpear el sitio del competidor en cada búsqueda del vendedor,
 guardamos su catálogo completo acá, en una base de datos local (SQLite).

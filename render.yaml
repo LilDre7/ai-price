@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: gd-price-checker
+    name: buscapormi
     runtime: python
     plan: free
     buildCommand: pip install -r requirements.txt
