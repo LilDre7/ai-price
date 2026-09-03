@@ -25,6 +25,10 @@
 
   * { box-sizing: border-box; }
 
+  /* El CSS de .loading/.status fija display:flex, que pisa el display:none
+     que el navegador aplica a [hidden]; sin esto el cubo nunca se oculta. */
+  [hidden] { display: none !important; }
+
   html { color-scheme: dark; }
 
   body {
@@ -716,7 +720,7 @@
         </div>
         <div id="results-container"></div>
 
-        <div class="loading" id="loading" hidden>
+        <div class="loading" id="loading">
           <div class="cubo-mini" aria-hidden="true">
             <div class="c">
               <i class="f"></i><i class="b"></i><i class="l"></i>
@@ -762,6 +766,12 @@
   const statusText = document.getElementById('status-text');
   const resultsContainer = document.getElementById('results-container');
   const submitBtn = document.getElementById('submit-btn');
+  const loadingEl = document.getElementById('loading');
+  const tiempoEl = document.getElementById('loading-tiempo');
+
+  // Cubo visible por defecto (no hay peticiones aún); mientras la búsqueda
+  // está en curso se mantiene, y al llegar el resultado desaparece.
+  let timerReloj = null;
 
   // El cubo que abre al cargar la app: la animación dura ~3s y luego se quita
   // el overlay por si el navegador no disparó 'load' (p.ej. request lento).
@@ -870,20 +880,21 @@
     const query = document.getElementById('query').value.trim();
     if (!query) return;
 
-    const loading = document.getElementById('loading');
-    const tiempoEl = document.getElementById('loading-tiempo');
     const inicio = Date.now();
-    const timer = setInterval(() => {
-      const s = Math.max(0, Math.round((Date.now() - inicio) / 1000));
-      tiempoEl.textContent = `${s.toFixed(0).padStart(2, '0')}s`;
-    }, 200);
 
     submitBtn.disabled = true;
     submitBtn.textContent = 'Buscando…';
     estado(`Consultando competidores para "${query}"…`);
+
+    // Vacía resultados y vuelve a mostrar el cubo mientras busca.
     resultsContainer.replaceChildren();
-    loading.hidden = false;
+    loadingEl.hidden = false;
     tiempoEl.textContent = '00s';
+    clearInterval(timerReloj);
+    timerReloj = setInterval(() => {
+      const s = Math.max(0, Math.round((Date.now() - inicio) / 1000));
+      tiempoEl.textContent = `${String(s).padStart(2, '0')}s`;
+    }, 200);
 
     try {
       const res = await fetch(`/api/buscar?q=${encodeURIComponent(query)}`);
@@ -951,8 +962,9 @@
         'No se pudo conectar con el servidor. Verificá que la app esté corriendo.');
       estado('');
     } finally {
-      clearInterval(timer);
-      loading.hidden = true;
+      clearInterval(timerReloj);
+      // El cubo desaparece al terminar la búsqueda (éxito, vacío o error).
+      loadingEl.hidden = true;
       submitBtn.disabled = false;
       submitBtn.textContent = 'Buscar';
     }

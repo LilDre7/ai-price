@@ -13,9 +13,11 @@ la lista junta de todas las tiendas.
 
 TRES FORMAS DE LEER UNA TIENDA (de mejor a peor):
   1. API JSON propia del sitio  -> Walmart, Shopify (ATEKCR, Vicortech, Ubalux),
-                                   WooCommerce (TechZilla, TICOTEK, CV, Intek,
-                                   IGaming, Dataland, BreakingTechnology)
-  2. HTML de la página de búsqueda -> Gollo, CyberTeam, PCTODOCR, MExpress
+                                    WooCommerce (TechZilla, TICOTEK, CV, Intek,
+                                    IGaming, Dataland, BreakingTechnology)
+  2. HTML de la página de búsqueda -> Gollo, CyberTeam, PCTODOCR, MExpress,
+                                    ExtremeTech y ADN Tienda (tras Cloudflare,
+                                    vía cloudscraper)
   3. Catálogo local cacheado     -> Intelec (su buscador está tras Cloudflare)
 
 AGREGAR UNA TIENDA NUEVA:
@@ -33,6 +35,14 @@ from urllib.parse import urljoin
 
 import requests
 from bs4 import BeautifulSoup
+
+try:
+    # Cloudscraper resuelve los challenges 'managed' de Cloudflare que
+    # bloquean con 403 a requests plano. Si no está instalado, seguimos
+    # con requests: solo fallarán las tiendas protegidas.
+    import cloudscraper
+except ImportError:  # pragma: no cover
+    cloudscraper = None
 
 TIMEOUT = 25
 MAX_POR_TIENDA = 12  # tope de candidatos por tienda, para no inflar el prompt de la IA
@@ -167,8 +177,20 @@ class Tienda(ABC):
     name: str
     base: str
 
+    # True para las tiendas cuyo sitio entero está tras un challenge de
+    # Cloudflare ('Just a moment...'): se consulta con cloudscraper, que
+    # resuelve el challenge, en vez de requests plano.
+    usa_cloudflare = False
+
     def __init__(self):
-        self.session = requests.Session()
+        if self.usa_cloudflare and cloudscraper is not None:
+            # La API de cloudscraper imita la de requests, así que todo el
+            # resto del código (get/json/...) funciona igual.
+            self.session = cloudscraper.create_scraper(
+                browser={"browser": "chrome", "platform": "windows", "desktop": True}
+            )
+        else:
+            self.session = requests.Session()
         self.session.headers.update(HEADERS)
 
     @abstractmethod
@@ -593,6 +615,104 @@ class MExpressTienda(Tienda):
 
 
 # ---------------------------------------------------------------------------
+# 8. ExtremeTech - WooCommerce con tema Woodmart (mismo HTML que Intelec).
+#    Todo el sitio está tras un challenge de Cloudflare, así que se consulta
+#    con cloudscraper. Su buscador (?s=&post_type=product) es flojo y devuelve
+#    candidatos de cualquier categoría; el filtro de IA los limpia después.
+# ---------------------------------------------------------------------------
+class ExtremeTechTienda(Tienda):
+    name = "ExtremeTech"
+    base = "https://extremetechcr.com"
+    usa_cloudflare = True
+
+    def buscar(self, query: str) -> List[ProductResult]:
+        soup = self._get_html(
+            f"{self.base}/", {"s": query, "post_type": "product"}
+        )
+        if not soup:
+            return []
+
+        resultados = []
+        for tarjeta in soup.select(".product-grid-item")[:MAX_POR_TIENDA]:
+            enlace = tarjeta.select_one("h3.wd-entities-title a")
+            if not enlace:
+                continue
+            nombre = enlace.get_text(strip=True)
+            if not nombre:
+                continue
+            precio = precio_de_tarjeta(tarjeta, ".price")
+            if not precio:
+                continue
+            resultados.append(
+                ProductResult(
+                    tienda=self.name,
+                    nombre=nombre,
+                    precio=precio,
+                    precio_texto=formato_colones(precio),
+                    url=self._absoluta(enlace.get("href", "")),
+                )
+            )
+        return resultados
+
+
+# ---------------------------------------------------------------------------
+# 9. ADN Tienda - Odoo (e-commerce). Busca en /shop?search=... y cada tarjeta
+#    es un <form itemprop="Product"> con el precio vigente y el tachado.
+#    Todo el sitio está tras un challenge de Cloudflare, como ExtremeTech.
+# ---------------------------------------------------------------------------
+class AdnTienda(Tienda):
+    name = "ADN Tienda"
+    base = "https://www.adntienda.com"
+    usa_cloudflare = True
+
+    def buscar(self, query: str) -> List[ProductResult]:
+        soup = self._get_html(f"{self.base}/shop", {"search": query})
+        if not soup:
+            return []
+
+        resultados = []
+        for tarjeta in soup.select("form[itemprop='product'], form[action='/shop/cart/update']")[
+            :MAX_POR_TIENDA
+        ]:
+            enlace = tarjeta.select_one("a[itemprop='url']")
+            if not enlace:
+                continue
+
+            # El nombre está en el itemprop="name" del form; si el tema no lo
+            # trae, el texto del enlace de la imagen suele ser el título.
+            nodo_nombre = tarjeta.find(attrs={"itemprop": "name"})
+            nombre = (
+                nodo_nombre.get_text(strip=True)
+                if nodo_nombre
+                else enlace.get_text(strip=True)
+            )
+            if not nombre:
+                continue
+
+            # En Odoo el precio vigente está en .product_price (el <del> es el
+            # tachado); el <span itemprop="price"> trae el número ya limpio.
+            span_precio = tarjeta.select_one('[itemprop="price"]')
+            precio = (
+                precio_desde_numero(span_precio.get("content") or span_precio.get_text())
+                if span_precio
+                else precio_de_tarjeta(tarjeta.select_one(".product_price") or tarjeta, ".oe_currency_value")
+            )
+            if not precio:
+                continue
+
+            resultados.append(
+                ProductResult(
+                    tienda=self.name,
+                    nombre=nombre,
+                    precio=precio,
+                    precio_texto=formato_colones(precio),
+                    url=self._absoluta(enlace.get("href", "")),
+                )
+            )
+        return resultados
+
+
+# ---------------------------------------------------------------------------
 # Tiendas que NO se pueden consultar en vivo
 #
 # Para estas dos, build_catalog.py se baja el catálogo de noche y acá solo
@@ -649,7 +769,6 @@ class MongeTienda(TiendaCatalogoLocal):
 #
 # Verificadas y funcionando. No incluidas, con razón:
 #   Compatibles pero en dólares (no en colones): HighTechCR, RavenCorp?
-#   ExtremeTech (extremetechcr.com)   403 de Cloudflare en todo el sitio
 #   Faith Technology (faithtechnologycr.com) 403 de Cloudflare
 #   Sintec (sinteccr.com)             no publica precios, vende por cotización
 #   Star Computers                    no tiene sitio web, solo TikTok/Threads
@@ -659,11 +778,13 @@ class MongeTienda(TiendaCatalogoLocal):
 # ---------------------------------------------------------------------------
 TIENDAS: List[Tienda] = [
     # En vivo: le pasan la búsqueda al buscador de la tienda
+    AdnTienda(),
     AtekTienda(),
     BreakingTechnologyTienda(),
     CvElectronicaTienda(),
     CyberTeamTienda(),
     DatalandTienda(),
+    ExtremeTechTienda(),
     GolloTienda(),
     IGamingTienda(),
     IntekTienda(),
