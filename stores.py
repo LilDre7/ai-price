@@ -27,6 +27,8 @@ TIENDAS al final del archivo. Nada más.
 
 from __future__ import annotations
 
+import html
+import json
 import re
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
@@ -776,6 +778,114 @@ class MongeTienda(TiendaCatalogoLocal):
 #   CompuComponentes / CQNet          buscador no devuelve productos (PrestaShop
 #                                     o catálogo no indexado)
 # ---------------------------------------------------------------------------
+
+# ---------------------------------------------------------------------------
+# 10. YIDRO - WooCommerce. Los productos de preventa/no indexados en la
+#      API Store se leen desde el HTML de las páginas de categoría
+#      (JSON-LD estructurado). Scrapea /escritorios-elevables/ y /escritorios/
+# ---------------------------------------------------------------------------
+class YidroTienda(Tienda):
+    name = "YIDRO"
+    base = "https://yidro.online"
+
+    # Mapeo de búsquedas comunes a las URLs de categoría de YIDRO
+    CATEGORY_MAP = {
+        "elevable": "/escritorios-elevables/",
+        "electrico": "/escritorios-elevables/",
+        "standing": "/escritorios-elevables/",
+        "escritorio": "/escritorios/",
+        "mesa": "/escritorios/",
+    }
+
+    def _resolve_url(self, query: str) -> str:
+        q = query.lower()
+        for keyword, path in self.CATEGORY_MAP.items():
+            if keyword in q:
+                return f"{self.base}{path}"
+        return f"{self.base}/escritorios/"
+
+    def buscar(self, query: str) -> List[ProductResult]:
+        url = self._resolve_url(query)
+        soup = self._get_html(url)
+        if not soup:
+            return []
+
+        resultados = []
+        vistos = set()
+
+        # Parsear JSON-LD estructurado de cada <script type="application/ld+json">
+        for script in soup.find_all("script", type="application/ld+json"):
+            try:
+                data = json.loads(script.string)
+            except (json.JSONDecodeError, TypeError, AttributeError):
+                continue
+
+            # Puede venir como lista o como objeto único
+            # Manejar ItemList (productos anidados) o Product directo
+            if data.get("@type") == "ItemList" and "itemListElement" in data:
+                items = [e.get("item") for e in data.get("itemListElement", []) if isinstance(e, dict)]
+            elif isinstance(data, list):
+                items = data
+            else:
+                items = [data]
+            for item in items:
+                if not isinstance(item, dict):
+                    continue
+                if item.get("@type") == "ItemList" and "itemListElement" in item:
+                    # Anidado doble nivel
+                    for nested in item.get("itemListElement", []):
+                        if isinstance(nested, dict) and nested.get("item"):
+                            items.append(nested["item"])
+                    continue
+                if item.get("@type") != "Product":
+                    continue
+
+                nombre = html.unescape(item.get("name", "")).strip()
+                if not nombre:
+                    continue
+
+                # Extraer precio de las ofertas
+                precio = None
+                offers = item.get("offers")
+                if isinstance(offers, dict):
+                    precio = precio_desde_numero(offers.get("price"))
+                elif isinstance(offers, list):
+                    for offer in offers:
+                        if isinstance(offer, dict):
+                            precio = precio_desde_numero(offer.get("price"))
+                            if precio:
+                                break
+
+                if not precio:
+                    continue
+
+                url_prod = item.get("url") or ""
+                if not url_prod:
+                    # Intentar construir desde el SKU
+                    sku = item.get("sku", "")
+                    if sku:
+                        url_prod = f"{self.base}/{sku}/"
+
+                # Deduplicar por URL
+                url_key = (self.name, url_prod)
+                if url_key in vistos:
+                    continue
+                vistos.add(url_key)
+
+                resultados.append(
+                    ProductResult(
+                        tienda=self.name,
+                        nombre=nombre,
+                        precio=precio,
+                        precio_texto=formato_colones(precio),
+                        url=url_prod or self.base,
+                        sku=item.get("sku") or None,
+                    )
+                )
+
+        return resultados
+
+
 TIENDAS: List[Tienda] = [
     # En vivo: le pasan la búsqueda al buscador de la tienda
     AdnTienda(),
@@ -798,4 +908,6 @@ TIENDAS: List[Tienda] = [
     # Desde el catálogo local que arma build_catalog.py
     IntelecTienda(),
     MongeTienda(),
+    # Tienda en vivo de muebles y oficina
+    YidroTienda(),
 ]
